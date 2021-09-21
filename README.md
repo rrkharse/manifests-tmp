@@ -4,6 +4,8 @@
 
 <!-- toc -->
 
+- [Pipelines and Metadata RDS setup](#pipelines-and-metadata-rds-setup)
+- [Katib RDS setup](#katib-rds-setup)
 - [Overview](#overview)
 - [Kubeflow components versions](#kubeflow-components-versions)
 - [Installation](#installation)
@@ -15,6 +17,221 @@
 - [Frequently Asked Questions](#frequently-asked-questions)
 
 <!-- tocstop -->
+
+## Pipelines and Metadata RDS setup
+
+1. Export some variables
+```
+export CLUSTER_NAME="your cluster name"
+export CLUSTER_REGION="your cluster's region"
+```
+2. Create the following KFDef manifest
+```
+cat > kfctl_aws_1_13.yaml << EOF
+apiVersion: kfdef.apps.kubeflow.org/v1
+kind: KfDef
+metadata:
+  annotations:
+    kfctl.kubeflow.io/force-delete: "false"
+  clusterName: ${CLUSTER_NAME}.${CLUSTER_REGION}.eksctl.io
+  creationTimestamp: null
+  name: ${CLUSTER_NAME}
+  namespace: kubeflow
+spec:
+  applications:
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/kubeflow-namespace/base
+    name: kubeflow-namespace
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/kubeflow-roles/base
+    name: kubeflow-roles
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: distributions/stacks/aws/application/istio-1-9-1-stack
+    name: istio-stack
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/cert-manager/cert-manager-kube-system-resources/base
+    name: cert-manager-kube-system-resources
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/cert-manager/cert-manager-crds/base
+    name: cert-manager-crds
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/cert-manager/cert-manager/overlays/self-signed
+    name: cert-manager
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/dex/overlays/istio
+    name: dex
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/oidc-authservice/base
+    name: oidc-authservice
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/knative/knative-serving-crds/base
+    name: knative-serving-crds
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/knative/knative-serving-install/base
+    name: knative-serving-install
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/knative/knative-eventing-crds/base
+    name: knative-eventing-crds
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/knative/knative-eventing-install/base
+    name: knative-eventing-install
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/istio-1-9-0/kubeflow-istio-resources/base
+    name: kubeflow-apps
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/pipeline/upstream/env/aws
+    name: kubeflow-pipelines
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/kfserving/upstream/overlays/kubeflow
+    name: kfserving
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/katib/upstream/installs/katib-with-kubeflow
+    name: katib
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/centraldashboard/upstream/overlays/istio
+    name: central-dashboard
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: distributions/stacks/aws/application/notebooks
+    name: notebooks
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/profiles/upstream/overlays/kubeflow
+    name: profiles
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/volumes-web-app/upstream/overlays/istio
+    name: volumes-web-app
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: distributions/stacks/aws/application/tensorboard
+    name: tensorboard
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/tf-training/upstream/overlays/kubeflow
+    name: tfjob-operator
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/pytorch-job/upstream/overlays/kubeflow
+    name: pytorch-operator
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/mpi-job/upstream/overlays/kubeflow
+    name: mpi-operator
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/mxnet-job/upstream/overlays/kubeflow
+    name: mxnet-operator
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: apps/xgboost-job/upstream/overlays/kubeflow
+    name: xgboost-operator
+  - kustomizeConfig:
+      repoRef:
+        name: manifests
+        path: common/user-namespace/base
+    name: user-namespace
+  repos:
+  - name: manifests
+    uri: https://github.com/kubeflow/manifests/archive/v1.3.0.tar.gz
+  version: v1.3.0
+status:
+  reposCache:
+  - localPath: '".cache/manifests/manifests-1.3.0"'
+    name: manifests
+  - localPath: '".cache/manifests/manifests-1.3.0"'
+    name: manifests
+EOF
+```
+3. Build your cache
+```
+kfctl build -V -f kfctl_aws_1_13.yaml
+```
+
+4. Update the parameters in the file `.cache/manifests/manifests-1.3.0/apps/pipeline/upstream/env/aws/params.env`
+5. Update the parameters in the file `.cache/manifests/manifests-1.3.0/apps/pipeline/upstream/env/aws/secrets.env`
+
+6. Apply the kfdef manifest
+```
+kfctl apply -V -f kfctl_aws_1_13.yaml
+```
+
+7. Verify installation at `localhost:8080`:
+```
+kubectl wait applications/pipeline -n kubeflow --for condition=Ready --timeout=1800s
+kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:8
+```
+
+8. For more help checkout the readme in `.cache/manifests/manifests-1.3.0/apps/pipeline/upstream/env/aws/`
+
+
+## Katib RDS setup
+
+1. Apply the 1.13 manifest
+```
+kfctl apply -V -f kfctl_aws_1_13.yaml
+```
+
+2. Go to the katib external db install directory
+```
+cd .cache/manifests/manifests-1.3.0/apps/katib/upstream/installs/katib-external-db
+```
+
+3. Update the parameters in `secrets.env`
+
+4. Apply the changes
+```
+kubectl apply -k ./
+```
+
+5. Verify installation at `http://localhost:8080/katib/`:
+```
+kubectl port-forward svc/katib-ui -n kubeflow 8080:80
+```
+
 
 ## Overview
 
